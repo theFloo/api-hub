@@ -1,0 +1,22 @@
+{
+  "name": "phonepe-pg-backend",
+  "version": "1.0.0",
+  "description": "Production-grade PhonePe PG Checkout V2 OAuth backend for digital products marketplace",
+  "type": "module",
+  "main": "server/api/index.js",
+  "scripts": {
+    "start": "node server/api/index.js",
+    "dev": "node --watch server/api/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "@supabase/supabase-js": "^2.43.4"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
