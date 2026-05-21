@@ -50,7 +50,6 @@ app.get('/api/health', (req, res) => {
     success: true,
     status: 'ok',
     timestamp: new Date().toISOString(),
-    env: env.app.nodeEnv,
   });
 });
 

@@ -6,13 +6,12 @@ import { env } from '../config/env.js';
 
 /**
  * Generate a unique merchant order ID (max 38 chars for PhonePe).
- * Format: pp-<timestamp-base36>-<random-hex>
+ * Format: PP-<timestamp-base36>-<random-hex>
  */
 export function generateMerchantOrderId() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = crypto.randomBytes(4).toString('hex').toUpperCase();
   return `PP-${ts}-${rand}`;
-  
 }
 
 /**
@@ -30,12 +29,19 @@ export function verifyWebhookChecksum(rawBody, xVerifyHeader) {
   const { saltKey, saltIndex } = env.phonepe;
   if (!saltKey) return false;
 
-  const base64Body = Buffer.from(rawBody).toString('base64');
-  const payload = base64Body + '/v2/notifications' + saltKey;
-  const hash = crypto.createHash('sha256').update(payload).digest('hex');
-  const expected = `${hash}###${saltIndex}`;
+  try {
+    const base64Body = Buffer.from(rawBody).toString('base64');
+    const payload = base64Body + '/v2/notifications' + saltKey;
+    const hash = crypto.createHash('sha256').update(payload).digest('hex');
+    const expected = `${hash}###${saltIndex}`;
 
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(xVerifyHeader));
+    const expectedBuf = Buffer.from(expected);
+    const receivedBuf = Buffer.from(xVerifyHeader);
+    if (expectedBuf.length !== receivedBuf.length) return false;
+    return crypto.timingSafeEqual(expectedBuf, receivedBuf);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -46,12 +52,15 @@ export function verifyCallbackChecksum(base64Response, xVerifyHeader, callbackPa
   const { saltKey, saltIndex } = env.phonepe;
   if (!saltKey) return false;
 
-  const payload = base64Response + callbackPath + saltKey;
-  const hash = crypto.createHash('sha256').update(payload).digest('hex');
-  const expected = `${hash}###${saltIndex}`;
-
   try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(xVerifyHeader));
+    const payload = base64Response + callbackPath + saltKey;
+    const hash = crypto.createHash('sha256').update(payload).digest('hex');
+    const expected = `${hash}###${saltIndex}`;
+
+    const expectedBuf = Buffer.from(expected);
+    const receivedBuf = Buffer.from(xVerifyHeader);
+    if (expectedBuf.length !== receivedBuf.length) return false;
+    return crypto.timingSafeEqual(expectedBuf, receivedBuf);
   } catch {
     return false;
   }
@@ -62,7 +71,10 @@ export function verifyCallbackChecksum(base64Response, xVerifyHeader, callbackPa
  */
 export function safeCompare(a, b) {
   try {
-    return crypto.timingSafeEqual(Buffer.from(String(a)), Buffer.from(String(b)));
+    const aBuf = Buffer.from(String(a));
+    const bBuf = Buffer.from(String(b));
+    if (aBuf.length !== bBuf.length) return false;
+    return crypto.timingSafeEqual(aBuf, bBuf);
   } catch {
     return false;
   }

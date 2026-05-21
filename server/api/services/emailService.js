@@ -4,6 +4,15 @@
 
 import { logger } from '../utils/logger.js';
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Send payment confirmation email.
  * Replace this stub with your actual email provider SDK call.
@@ -29,7 +38,7 @@ export async function sendPaymentConfirmationEmail({ customerName, customerEmail
 
     logger.info('email.payment_confirmation.sent', { customerEmail, orderId });
   } catch (err) {
-    // Email failures should NOT block payment flow
+    // Email failures must NOT block payment flow
     logger.error('email.payment_confirmation.failed', {
       customerEmail,
       orderId,
@@ -39,12 +48,15 @@ export async function sendPaymentConfirmationEmail({ customerName, customerEmail
 }
 
 function buildEmailHtml({ customerName, orderId, items, amountRupees }) {
-  const itemList = items.map((i) => `<li>${i.name} × ${i.quantity}</li>`).join('');
+  const itemList = (items || [])
+    .map((i) => `<li>${escapeHtml(i.name)} × ${escapeHtml(String(i.quantity))}</li>`)
+    .join('');
+
   return `
     <h2>Payment Confirmed</h2>
-    <p>Hi ${customerName},</p>
-    <p>Your payment of ₹${amountRupees} has been confirmed.</p>
-    <p>Order ID: <strong>${orderId}</strong></p>
+    <p>Hi ${escapeHtml(customerName)},</p>
+    <p>Your payment of ₹${escapeHtml(amountRupees)} has been confirmed.</p>
+    <p>Order ID: <strong>${escapeHtml(orderId)}</strong></p>
     <ul>${itemList}</ul>
     <p>Your download links are available in your account.</p>
   `;

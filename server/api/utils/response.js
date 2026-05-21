@@ -20,7 +20,7 @@ export function errorResponse(res, message = 'An error occurred', statusCode = 5
 }
 
 export function redirectWithError(res, frontendUrl, message) {
-  const url = new URL('/payment/failure', frontendUrl);
+  const url = new URL('/payment-failure.html', frontendUrl);
   url.searchParams.set('reason', message);
   return res.redirect(302, url.toString());
 }

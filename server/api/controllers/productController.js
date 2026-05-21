@@ -13,7 +13,8 @@ export async function listProducts(req, res) {
   const { data, error } = await supabase
     .from('products')
     .select('*')
-    .order("id");
+    .eq('is_active', true)
+    .order('id');
 
   if (error) {
     logger.error('product.list_failed', { error: error.message });

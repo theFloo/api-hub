@@ -52,7 +52,6 @@ export async function generateDownloadLinks(orderId, customerEmail) {
     logger.error('download.products_fetch_failed', { orderId, error: prodError.message });
     throw new Error('Failed to fetch products');
   }
-  console.log('Fetched products for download links:', products);
   // 3. Generate signed URLs for each product
   const downloads = await Promise.all(
     products.map(async (product) => {
@@ -69,12 +68,11 @@ export async function generateDownloadLinks(orderId, customerEmail) {
       //   .from(bucket)
       //   .createSignedUrl(product.file_name, expiresIn);
 
-      const filePath = `${product.storage_path}/${product.file_name}`; console.log('Generating signed URL for:', filePath);
+      const filePath = `${product.storage_path}/${product.file_name}`;
       const { data: signedData, error: signError } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .createSignedUrl(product.file_name, SIGNED_URL_EXPIRY_SECONDS);
+        .createSignedUrl(filePath, SIGNED_URL_EXPIRY_SECONDS);
 
-      console.log(`Generated signed URL for product ${product.id}:`, signedData, signError);
       if (signError || !signedData?.signedUrl) {
         logger.error('download.signed_url_failed', {
           productId: product.id,

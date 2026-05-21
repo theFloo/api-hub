@@ -1,12 +1,12 @@
 // server/api/middleware/security.js
-// Production security middleware without Helmet dependency
+// Production security middleware
 
 import rateLimit from 'express-rate-limit';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 
 /**
- * Manually set security headers (Helmet-equivalent).
+ * Security headers (Helmet-equivalent).
  */
 export function securityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -14,14 +14,14 @@ export function securityHeaders(req, res, next) {
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-
-  // Remove server fingerprint
+  res.setHeader('Content-Security-Policy', "default-src 'none'");
   res.removeHeader('X-Powered-By');
   next();
 }
 
 /**
  * CORS middleware with explicit origin allowlist.
+ * Server-to-server requests (no Origin) get no CORS headers — they don't need them.
  */
 export function corsMiddleware(req, res, next) {
   const origin = req.headers.origin;
@@ -29,14 +29,10 @@ export function corsMiddleware(req, res, next) {
 
   if (origin && allowed.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    // Allow server-to-server (no origin header)
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID');
+    res.setHeader('Access-Control-Max-Age', '86400');
   }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID');
-  res.setHeader('Access-Control-Max-Age', '86400');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
@@ -60,7 +56,7 @@ export const generalRateLimiter = rateLimit({
 });
 
 /**
- * Strict rate limiter for payment creation: 10 per 15 minutes per IP.
+ * Strict rate limiter for payment creation and status polling: 10 per 15 minutes per IP.
  */
 export const paymentRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -75,10 +71,11 @@ export const paymentRateLimiter = rateLimit({
 });
 
 /**
- * Attach a request ID for tracing.
+ * Attach a server-generated request ID for tracing.
+ * Never trust a client-supplied X-Request-ID to prevent log injection.
  */
 export function requestId(req, res, next) {
-  const id = req.headers['x-request-id'] || crypto.randomUUID();
+  const id = crypto.randomUUID();
   req.requestId = id;
   res.setHeader('X-Request-ID', id);
   next();

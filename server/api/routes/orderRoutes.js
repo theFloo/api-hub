@@ -13,11 +13,11 @@ const router = Router();
 // List orders by email
 router.get('/', listOrdersByEmail);
 
+// Specific named routes MUST come before parameter routes
+router.get('/merchant/:merchantOrderId', getOrderByMerchantId);
+
 // Get order by internal UUID
 router.get('/:orderId', getOrder);
-
-// Get order by PhonePe merchantOrderId
-router.get('/merchant/:merchantOrderId', getOrderByMerchantId);
 
 // Generate signed download links for a paid order
 router.post('/:orderId/downloads', getDownloadLinks);

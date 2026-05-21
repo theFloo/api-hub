@@ -12,6 +12,9 @@ const tokenCache = {
   expiresAt: 0,
 };
 
+// Deduplicates concurrent refresh calls — only one HTTP request goes out
+let refreshPromise = null;
+
 /**
  * Returns a valid PhonePe OAuth access token.
  * Fetches a new one if the cached token is expired or missing.
@@ -24,10 +27,16 @@ export async function getAccessToken() {
     return tokenCache.accessToken;
   }
 
-  return refreshAccessToken();
+  // All concurrent callers share the same in-flight refresh request
+  if (!refreshPromise) {
+    refreshPromise = _refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
 }
 
-async function refreshAccessToken() {
+async function _refreshAccessToken() {
   logger.info('phonepe.token.refresh_start');
 
   const params = new URLSearchParams();
@@ -51,7 +60,6 @@ async function refreshAccessToken() {
     }
 
     tokenCache.accessToken = access_token;
-    // expires_in is in seconds
     tokenCache.expiresAt = Date.now() + (expires_in || 3600) * 1000;
 
     logger.info('phonepe.token.refresh_success', { expiresIn: expires_in });

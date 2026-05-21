@@ -21,8 +21,7 @@ import { env } from '../config/env.js';
 // POST /api/payments/create
 // ---------------------------------------------------------------------------
 export async function createPayment(req, res) {
-  console.log('createPayment called with body:', req.body);
-  const { customerName, customerEmail, customerPhone, items, userId } = req.body;
+  const { customerName, customerEmail, customerPhone, items } = req.body;
 
   // 1. Validate input
   const { valid, errors } = validateCreatePayment(req.body);
@@ -30,7 +29,12 @@ export async function createPayment(req, res) {
     return errorResponse(res, 'Validation failed', 400, errors);
   }
 
-  // 2. Fetch products from DB — never trust client prices
+  // 2. Sanitize string inputs before persistence
+  const safeName = sanitizeString(customerName, 100);
+  const safeEmail = customerEmail.toLowerCase().trim();
+  const safePhone = sanitizeString(customerPhone, 15);
+
+  // 3. Fetch products from DB — never trust client prices
   const productIds = items.map((i) => i.productId);
   let products;
   try {
@@ -43,7 +47,7 @@ export async function createPayment(req, res) {
     return errorResponse(res, 'One or more products are unavailable', 400);
   }
 
-  // 3. Recalculate total server-side (prevent amount tampering)
+  // 4. Recalculate total server-side (prevent amount tampering)
   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
   let totalPaise = 0;
   const resolvedItems = [];
@@ -62,38 +66,33 @@ export async function createPayment(req, res) {
       linePaise,
     });
   }
-  console.log('Resolved Items:', resolvedItems);
 
   if (totalPaise < 100) {
     return errorResponse(res, 'Order amount too low', 400);
   }
 
-  // 4. Generate unique merchant order ID
+  // 5. Generate unique merchant order ID
   const merchantOrderId = generateMerchantOrderId();
-console.log('Generated merchantOrderId:', merchantOrderId);
-  // 5. Persist pending order
+
+  // 6. Persist pending order
   let order;
   try {
     order = await createOrder({
-      merchantOrderId: merchantOrderId,
-      customerName: customerName,
-      customerEmail: customerEmail,
-      customerPhone: customerPhone,
+      merchantOrderId,
+      customerName: safeName,
+      customerEmail: safeEmail,
+      customerPhone: safePhone,
       items: resolvedItems,
       amountPaise: totalPaise,
-      paymentUrl: null,
-      transactionId: null,
-      userId: null,
     });
-    console.log('Created order in DB with ID:', order.id);
   } catch (err) {
     return errorResponse(res, 'Failed to create order', 500);
   }
 
-  // 6. Build callback URL
+  // 7. Build callback URL
   const redirectUrl = `${env.app.backendUrl}/api/payments/callback/${merchantOrderId}`;
 
-  // 7. Create PhonePe payment
+  // 8. Create PhonePe payment
   let phonePeResponse;
   try {
     phonePeResponse = await createPhonePePayment({
@@ -102,7 +101,7 @@ console.log('Generated merchantOrderId:', merchantOrderId);
       redirectUrl,
       metaInfo: {
         udf1: order.id,
-        udf2: customerEmail.toLowerCase().trim(),
+        udf2: safeEmail,
       },
     });
   } catch (err) {
@@ -113,14 +112,6 @@ console.log('Generated merchantOrderId:', merchantOrderId);
     return errorResponse(res, 'Payment gateway error. Please try again.', 502);
   }
 
-  // 8. Log initiation
-  // await logPaymentEvent({
-  //   merchantOrderId,
-  //   eventType: 'PAYMENT_INITIATED',
-  //   payload: { amount: totalPaise, items: resolvedItems },
-  //   source: 'CREATE_API',
-  // });
-
   logger.info('payment.initiated', { merchantOrderId, amountPaise: totalPaise, orderId: order.id });
 
   // 9. Return redirect URL to frontend
@@ -130,7 +121,7 @@ console.log('Generated merchantOrderId:', merchantOrderId);
     phonePeResponse?.instrumentResponse?.redirectInfo?.url;
 
   if (!checkoutUrl) {
-    logger.error('payment.create.no_redirect_url', { merchantOrderId, phonePeResponse });
+    logger.error('payment.create.no_redirect_url', { merchantOrderId });
     return errorResponse(res, 'Invalid payment gateway response', 502);
   }
 
@@ -144,22 +135,32 @@ console.log('Generated merchantOrderId:', merchantOrderId);
 
 // ---------------------------------------------------------------------------
 // GET /api/payments/callback/:merchantOrderId
-// Called by PhonePe after the user completes/cancels payment
+// Called by PhonePe after the user completes/cancels payment (browser redirect).
+// The callback is not signed for GET redirects — always re-verify via status API.
 // ---------------------------------------------------------------------------
 export async function handleCallback(req, res) {
   const { merchantOrderId } = req.params;
 
   logger.info('payment.callback.received', { merchantOrderId, requestId: req.requestId });
 
-  await logPaymentEvent({
-    merchantOrderId,
-    eventType: 'CALLBACK_RECEIVED',
-    payload: { query: req.query, headers: { 'x-verify': req.headers['x-verify'] } },
-    source: 'PHONEPE_CALLBACK',
-  });
+  try {
+    await logPaymentEvent({
+      merchantOrderId,
+      eventType: 'CALLBACK_RECEIVED',
+      payload: { query: req.query },
+      source: 'PHONEPE_CALLBACK',
+    });
+  } catch { /* non-critical */ }
 
   // 1. Fetch order — never trust frontend state
-  const order = await getOrderByMerchantOrderId(merchantOrderId);
+  let order;
+  try {
+    order = await getOrderByMerchantOrderId(merchantOrderId);
+  } catch (err) {
+    logger.error('payment.callback.db_error', { merchantOrderId, error: err.message });
+    return redirectWithError(res, env.app.frontendUrl, 'server_error');
+  }
+
   if (!order) {
     logger.error('payment.callback.order_not_found', { merchantOrderId });
     return redirectWithError(res, env.app.frontendUrl, 'order_not_found');
@@ -171,7 +172,7 @@ export async function handleCallback(req, res) {
     return redirectWithSuccess(res, env.app.frontendUrl, order.id);
   }
 
-  // 3. Verify payment status via PhonePe API (never trust callback params alone)
+  // 3. Verify payment status via PhonePe API (source of truth)
   let statusResponse;
   try {
     statusResponse = await getPaymentStatus(merchantOrderId);
@@ -182,12 +183,14 @@ export async function handleCallback(req, res) {
 
   logger.info('payment.callback.status_response', { merchantOrderId, state: statusResponse?.state });
 
-  await logPaymentEvent({
-    merchantOrderId,
-    eventType: 'STATUS_VERIFIED',
-    payload: statusResponse,
-    source: 'PHONEPE_STATUS_API',
-  });
+  try {
+    await logPaymentEvent({
+      merchantOrderId,
+      eventType: 'STATUS_VERIFIED',
+      payload: { state: statusResponse?.state },
+      source: 'PHONEPE_STATUS_API',
+    });
+  } catch { /* non-critical */ }
 
   const paymentState = statusResponse?.state;
 
@@ -206,7 +209,6 @@ export async function handleCallback(req, res) {
 
       if (updated) {
         logger.info('payment.callback.completed', { merchantOrderId, transactionId });
-        // Fire-and-forget confirmation email
         sendPaymentConfirmationEmail({
           customerName: order.customer_name,
           customerEmail: order.customer_email,
@@ -229,11 +231,10 @@ export async function handleCallback(req, res) {
       phonePeResponse: statusResponse,
     }).catch(() => {});
 
-    logger.warn('payment.callback.failed', { merchantOrderId, paymentState });
+    logger.warn('payment.callback.failed', { merchantOrderId });
     return redirectWithError(res, env.app.frontendUrl, 'payment_failed');
 
   } else {
-    // PENDING or unknown state
     logger.warn('payment.callback.pending_or_unknown', { merchantOrderId, paymentState });
     return redirectWithError(res, env.app.frontendUrl, 'payment_pending');
   }
@@ -269,18 +270,20 @@ export async function handleWebhook(req, res) {
     return res.status(400).json({ success: false, error: 'Invalid JSON' });
   }
 
-  const { merchantOrderId, state: paymentState, transactionId } = webhookData;
+  const { merchantOrderId, transactionId } = webhookData;
 
   if (!merchantOrderId) {
     return res.status(400).json({ success: false, error: 'Missing merchantOrderId' });
   }
 
-  await logPaymentEvent({
-    merchantOrderId,
-    eventType: 'WEBHOOK_RECEIVED',
-    payload: webhookData,
-    source: 'PHONEPE_WEBHOOK',
-  });
+  try {
+    await logPaymentEvent({
+      merchantOrderId,
+      eventType: 'WEBHOOK_RECEIVED',
+      payload: { state: webhookData.state },
+      source: 'PHONEPE_WEBHOOK',
+    });
+  } catch { /* non-critical */ }
 
   // 3. Verify payment state via status API (double verification)
   let statusResponse;
@@ -288,13 +291,13 @@ export async function handleWebhook(req, res) {
     statusResponse = await getPaymentStatus(merchantOrderId);
   } catch (err) {
     logger.error('payment.webhook.status_check_failed', { merchantOrderId, error: err.message });
-    // Return 200 to stop PhonePe retries if it's a client error
+    // Return 200 to stop PhonePe retries for non-recoverable errors
     return res.status(200).json({ success: true, message: 'Acknowledged' });
   }
 
   const verifiedState = statusResponse?.state;
 
-  // 4. Only process COMPLETED state
+  // 4. Only process COMPLETED or FAILED states
   if (verifiedState === 'COMPLETED') {
     const order = await getOrderByMerchantOrderId(merchantOrderId);
     if (!order) {
@@ -325,8 +328,10 @@ export async function handleWebhook(req, res) {
       }
     } catch (err) {
       logger.error('payment.webhook.db_failed', { merchantOrderId, error: err.message });
+      // Return 500 so PhonePe retries — DB failures are recoverable
       return res.status(500).json({ success: false, error: 'DB update failed' });
     }
+
   } else if (verifiedState === 'FAILED') {
     await updateOrderPaymentState({
       merchantOrderId,
@@ -339,7 +344,6 @@ export async function handleWebhook(req, res) {
     logger.info('payment.webhook.ignored_state', { merchantOrderId, verifiedState });
   }
 
-  // Always return 200 to PhonePe to stop retries
   return res.status(200).json({ success: true });
 }
 
@@ -350,18 +354,23 @@ export async function handleWebhook(req, res) {
 export async function getPaymentStatusController(req, res) {
   const { merchantOrderId } = req.params;
 
-  const order = await getOrderByMerchantOrderId(merchantOrderId);
-  if (!order) {
-    return errorResponse(res, 'Order not found', 404);
-  }
+  try {
+    const order = await getOrderByMerchantOrderId(merchantOrderId);
+    if (!order) {
+      return errorResponse(res, 'Order not found', 404);
+    }
 
-  return successResponse(res, {
-    merchantOrderId,
-    orderId: order.id,
-    paymentState: order.payment_state,
-    amount: order.amount_paise,
-    transactionId: order.transaction_id || null,
-    createdAt: order.created_at,
-    updatedAt: order.updated_at,
-  });
+    return successResponse(res, {
+      merchantOrderId,
+      orderId: order.id,
+      paymentState: order.payment_state,
+      amount: order.amount_paise,
+      transactionId: order.transaction_id || null,
+      createdAt: order.created_at,
+      updatedAt: order.updated_at,
+    });
+  } catch (err) {
+    logger.error('payment.status.db_error', { merchantOrderId, error: err.message });
+    return errorResponse(res, 'Failed to fetch order status', 503);
+  }
 }

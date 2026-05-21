@@ -12,7 +12,6 @@ import { logger } from '../utils/logger.js';
  */
 async function phonePeRequest(method, path, data = null, attempt = 1) {
   const token = await getAccessToken();
-console.log('Using access token:', token);
   const config = {
     method,
     url: `${env.phonepe.baseUrl}${path}`,
@@ -28,7 +27,6 @@ console.log('Using access token:', token);
 
   try {
     const response = await axios(config);
-    console.log(`PhonePe API response for ${method}${path}:`, response.data);
     return response.data;
   } catch (err) {
     const status = err.response?.status;
@@ -92,11 +90,6 @@ export async function createPhonePePayment({
       }
     }
   };
-
-  console.log(
-    "PHONEPE PAYLOAD:",
-    JSON.stringify(payload, null, 2)
-  );
 
   logger.info(
     "phonepe.payment.create",

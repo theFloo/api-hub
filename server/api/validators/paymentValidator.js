@@ -12,8 +12,8 @@ export function validateCreatePayment(body) {
     return { valid: false, errors: ['Invalid request body'] };
   }
 
-  const { customerName, customerEmail,customerPhone, items } = body;
-console.log('Validating create payment input:', { customerName, customerEmail,customerPhone, items });  
+  const { customerName, customerEmail, customerPhone, items } = body;
+
   if (!customerName || typeof customerName !== 'string' || customerName.trim().length < 2) {
     errors.push('customerName must be at least 2 characters');
   }
