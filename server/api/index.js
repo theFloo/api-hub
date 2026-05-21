@@ -28,8 +28,8 @@ const app = express();
 app.set('trust proxy', 1); // Required for Vercel / reverse proxies
 app.use(requestId);
 app.use(requestLogger);
-app.use(securityHeaders);
 app.use(corsMiddleware);
+app.use(securityHeaders);
 app.use(generalRateLimiter);
 
 // JSON body parser — NOTE: webhook route handles raw body separately
