@@ -34,9 +34,9 @@ export async function getOrder(req, res) {
     id: order.id,
     merchantOrderId: order.merchant_order_id,
     items: order.items,
-    amountPaise: order.amount_paise,
+    amountPaise: order.total_amount,
     paymentState: order.payment_state,
-    transactionId: order.transaction_id,
+    transactionId: order.payment?.transactionId || null,
     createdAt: order.created_at,
   });
 }
@@ -66,9 +66,9 @@ export async function getOrderByMerchantId(req, res) {
     id: order.id,
     merchantOrderId: order.merchant_order_id,
     items: order.items,
-    amountPaise: order.amount_paise,
+    amountPaise: order.total_amount,
     paymentState: order.payment_state,
-    transactionId: order.transaction_id,
+    transactionId: order.payment?.transactionId || null,
     createdAt: order.created_at,
   });
 }

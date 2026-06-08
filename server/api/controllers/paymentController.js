@@ -214,7 +214,7 @@ export async function handleCallback(req, res) {
           customerEmail: order.customer_email,
           orderId: order.id,
           items: order.items,
-          amountPaise: order.amount_paise,
+          amountPaise: order.total_amount,
         });
       }
     } catch (err) {
@@ -321,7 +321,7 @@ export async function handleWebhook(req, res) {
           customerEmail: order.customer_email,
           orderId: order.id,
           items: order.items,
-          amountPaise: order.amount_paise,
+          amountPaise: order.total_amount,
         });
       } else {
         logger.info('payment.webhook.idempotent_skip', { merchantOrderId });
@@ -364,8 +364,8 @@ export async function getPaymentStatusController(req, res) {
       merchantOrderId,
       orderId: order.id,
       paymentState: order.payment_state,
-      amount: order.amount_paise,
-      transactionId: order.transaction_id || null,
+      amount: order.total_amount,
+      transactionId: order.payment?.transactionId || null,
       createdAt: order.created_at,
       updatedAt: order.updated_at,
     });

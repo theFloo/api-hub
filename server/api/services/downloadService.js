@@ -34,7 +34,7 @@ export async function generateDownloadLinks(orderId, customerEmail) {
   }
 
   if (order.payment.status !== 'COMPLETED') {
-    logger.warn('download.order_not_paid', { orderId, state: order.payment_state });
+    logger.warn('download.order_not_paid', { orderId, state: order.payment?.status });
     throw new Error('Payment not completed');
   }
 
@@ -60,18 +60,9 @@ export async function generateDownloadLinks(orderId, customerEmail) {
         return null;
       }
 
-      // const bucket = product.storage_path || "products";
-      // const expiresIn = 60;
-
-      // // 5️⃣ Create signed URL (IMPORTANT: filename only)
-      // const { data: signedData, error: signError } = await supabase.storage
-      //   .from(bucket)
-      //   .createSignedUrl(product.file_name, expiresIn);
-
-      const filePath = `${product.storage_path}/${product.file_name}`;
       const { data: signedData, error: signError } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .createSignedUrl(filePath, SIGNED_URL_EXPIRY_SECONDS);
+        .createSignedUrl(product.file_name, SIGNED_URL_EXPIRY_SECONDS);
 
       if (signError || !signedData?.signedUrl) {
         logger.error('download.signed_url_failed', {

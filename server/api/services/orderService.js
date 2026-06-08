@@ -14,7 +14,6 @@ export async function getProductById(productId) {
     .from('products')
     .select('id, name, price, storage_path')
     .eq('id', productId)
-    .eq('is_active', true)
     .single();
 
   if (error) {
@@ -31,8 +30,7 @@ export async function getProductsByIds(productIds) {
   const { data, error } = await supabase
     .from('products')
     .select('*')
-    .in('id', productIds)
-    .eq('popular', true);
+    .in('id', productIds);
 
   if (error) {
     logger.error('db.products.fetch_failed', { productIds, error: error.message });
@@ -52,6 +50,8 @@ export async function createOrder({
   items,
   amountPaise,
 }) {
+  const productIds = (items || []).map((item) => item.productId);
+
   const { data, error } = await supabase
     .from('orders')
     .insert({
@@ -60,7 +60,9 @@ export async function createOrder({
       customer_email: customerEmail,
       customer_phone: customerPhone,
       items,
-      total_amount : amountPaise,
+      product_id: productIds,
+      subtotal: amountPaise,
+      total_amount: amountPaise,
       payment_state: 'PENDING',
       payment: {
         gateway: 'phonepe',
@@ -178,8 +180,6 @@ export async function updateOrderPaymentState({
     .update({
       payment_state: paymentState,
       payment: paymentUpdate,
-      ...(paymentState === 'COMPLETED' ? { transaction_id: transactionId } : {}),
-      ...(paymentInstrument ? { payment_instrument: paymentInstrument } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq('merchant_order_id', merchantOrderId)
@@ -229,7 +229,7 @@ export async function logPaymentEvent({ merchantOrderId, eventType, payload, sou
 export async function getOrdersByEmail(email, page = 0) {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, merchant_order_id, items, amount_paise, payment_state, created_at')
+    .select('id, merchant_order_id, items, total_amount, payment_state, created_at')
     .eq('customer_email', email)
     .order('created_at', { ascending: false })
     .range(page * ORDER_LIST_LIMIT, (page + 1) * ORDER_LIST_LIMIT - 1);
