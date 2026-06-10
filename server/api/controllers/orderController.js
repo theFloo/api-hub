@@ -4,6 +4,7 @@
 import { successResponse, errorResponse } from '../utils/response.js';
 import { getOrderById, getOrderByMerchantOrderId, getOrdersByEmail } from '../services/orderService.js';
 import { generateDownloadLinks } from '../services/downloadService.js';
+import { sendPaymentConfirmationEmail } from '../services/emailService.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -112,5 +113,41 @@ export async function getDownloadLinks(req, res) {
     const msg = err.message || 'Failed to generate download links';
     const status = msg === 'Unauthorized' ? 403 : msg === 'Order not found' ? 404 : msg === 'Payment not completed' ? 402 : 500;
     return errorResponse(res, msg, status);
+  }
+}
+
+/**
+ * POST /api/orders/test/send-email
+ * Test email sending — development only
+ * Body: { customerName, customerEmail, orderId, items, amountPaise }
+ */
+export async function testEmailSend(req, res) {
+  const { customerName, customerEmail, orderId, items, amountPaise } = req.body;
+
+  if (!customerName || !customerEmail || !orderId || !items || !amountPaise) {
+    return errorResponse(
+      res,
+      'Missing required fields: customerName, customerEmail, orderId, items, amountPaise',
+      400
+    );
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+    return errorResponse(res, 'Invalid email address', 400);
+  }
+
+  try {
+    await sendPaymentConfirmationEmail({
+      customerName,
+      customerEmail,
+      orderId,
+      items,
+      amountPaise,
+    });
+    logger.info('test.email.sent', { customerEmail, orderId });
+    return successResponse(res, { message: 'Test email sent successfully' });
+  } catch (err) {
+    logger.error('test.email.failed', { customerEmail, error: err.message });
+    return errorResponse(res, `Failed to send test email: ${err.message}`, 500);
   }
 }
